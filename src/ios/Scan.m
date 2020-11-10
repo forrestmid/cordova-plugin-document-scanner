@@ -4,22 +4,90 @@
 
 - (void)scanDoc:(CDVInvokedUrlCommand*)command
 {
-    // [sourceType, fileName, quality, returnBase64]
     _commandglo = command;
     NSString* sourceType = [[_commandglo arguments] objectAtIndex:0];
     NSString* fileName = [[_commandglo arguments] objectAtIndex:1];
     NSDecimalNumber *quality = [[_commandglo arguments] objectAtIndex:2];
     id returnBase64 = [[_commandglo arguments] objectAtIndex:3];
-    
-    IRLScannerViewController *scanner = [IRLScannerViewController
-                                         cameraViewWithDefaultType: IRLScannerViewTypeNormal
-                                         defaultDetectorType: IRLScannerDetectorTypePerformance
-                                         withDelegate:self];
-                                         
-    scanner.showControls = YES;
-    scanner.showAutoFocusWhiteRectangle = YES;
 
-    [[self topViewController] presentViewController:scanner animated:YES completion:nil];
+    if (@available(iOS 13.0, *)) {
+        VNDocumentCameraViewController* documentCameraViewController = [[VNDocumentCameraViewController alloc] init];
+        documentCameraViewController.delegate = self;
+        [[self topViewController] presentViewController:documentCameraViewController animated:YES completion:nil];
+    } else {
+        // Fallback on earlier versions
+        // [sourceType, fileName, quality, returnBase64]
+        IRLScannerViewController *scanner = [IRLScannerViewController
+                                             cameraViewWithDefaultType: IRLScannerViewTypeNormal
+                                             defaultDetectorType: IRLScannerDetectorTypePerformance
+                                             withDelegate:self];
+
+        scanner.showControls = YES;
+        scanner.showAutoFocusWhiteRectangle = YES;
+
+        [[self topViewController] presentViewController:scanner animated:YES completion:nil];
+    }
+}
+
+- (void)documentCameraViewController:(VNDocumentCameraViewController *)controller
+                   didFinishWithScan:(VNDocumentCameraScan *)scan  API_AVAILABLE(ios(13.0)){
+    // Process the scanned pages
+    UIImage *page_image = [scan imageOfPageAtIndex:0];
+
+    [controller dismissViewControllerAnimated:YES completion:^{
+
+        NSDecimalNumber *quality = [[_commandglo arguments] objectAtIndex:2];
+        id returnBase64 = [[_commandglo arguments] objectAtIndex:3];
+
+        CGFloat floatQuality = [quality floatValue];
+        floatQuality = 1 - (floatQuality - 1)/4; // 1 - 1(quality - 1)/(max - 1)
+        NSData *imgData = UIImageJPEGRepresentation(page_image,floatQuality);
+        if([returnBase64 boolValue]) {
+            CDVPluginResult* result = [CDVPluginResult
+                                       resultWithStatus:CDVCommandStatus_OK
+                                       messageAsString:[self base64forData:imgData]];
+            [self.commandDelegate sendPluginResult:result callbackId:_commandglo.callbackId];
+        } else {
+            NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+            NSString *documentsPath = [paths objectAtIndex:0]; //Get the docs directory
+            NSString *fileName = [[_commandglo arguments] objectAtIndex:1];
+            NSString *fileType = @"jpg";
+            NSString *completeFileName = [NSString stringWithFormat:@"%@.%@", fileName, fileType];
+
+            NSMutableArray *imageArray = [NSMutableArray array];
+            int pageNumber;
+            for (pageNumber = 0; pageNumber < scan.pageCount; pageNumber++) {
+                UIImage *image = [scan imageOfPageAtIndex:pageNumber];
+                NSData *imageData = UIImageJPEGRepresentation(image,floatQuality);
+                NSString* stringPageNumber = [NSString stringWithFormat:@"%i", pageNumber];
+                NSString *fileName = [NSString stringWithFormat:@"page-%@.%@", stringPageNumber, fileType];
+                NSString *filePath = [documentsPath stringByAppendingPathComponent:fileName];
+                [imageData writeToFile:filePath atomically:YES];
+                NSString *appendfilestr = @"file://";
+                NSString *filePathcomplete = [appendfilestr stringByAppendingString:filePath];
+                [imageArray addObject:filePathcomplete];
+            }
+            NSData *jsonData2 = [NSJSONSerialization dataWithJSONObject:imageArray options:nil error:nil];
+            NSString *jsonString = [[NSString alloc] initWithData:jsonData2 encoding:NSUTF8StringEncoding];
+            //Add the file name
+
+            //NSLog(@"%@", jsonString);
+
+            CDVPluginResult* result = [CDVPluginResult
+                                       resultWithStatus:CDVCommandStatus_OK
+                                       messageAsString:jsonString];
+            [self.commandDelegate sendPluginResult:result callbackId:_commandglo.callbackId];
+        }
+    }];
+}
+
+- (void)documentCameraViewController:(VNDocumentCameraViewController *)controller didFailWithError:(NSError *)error API_AVAILABLE(ios(13.0)){
+    NSLog(@"%@",[error localizedDescription]);
+    [controller dismissViewControllerAnimated:true completion:nil];
+}
+
+- (void)documentCameraViewControlleDidCancel:(VNDocumentCameraViewController *)controller  API_AVAILABLE(ios(13.0)){
+    [controller dismissViewControllerAnimated:true completion:nil];
 }
 
 -(void)pageSnapped:(UIImage *)page_image from:(UIViewController *)controller {

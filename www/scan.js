@@ -13,7 +13,18 @@ module.exports = {
 			var quality = options.quality;	// Quality defaults to 1 (highest). If value > 1, a smaller image is returned to save memory. https://developer.android.com/reference/android/graphics/BitmapFactory.Options.html#inSampleSize
 			var returnBase64 = options.returnBase64;	// return base64 output if set to true. Defaults to false.
 			var args = [sourceType, fileName, quality, returnBase64];
-        	cordova.exec(successCallback, errorCallback, "Scan", "scanDoc", args);
+        	cordova.exec(function(data) {
+                try {
+                    var array = JSON.parse(data);
+                    data = array;
+                } catch(e) {
+
+                }
+                if (typeof data !== 'object') {
+                    data = [data];
+                }
+        	    successCallback(data);
+            }, errorCallback, "Scan", "scanDoc", args);
     	}
     	else
     	{
